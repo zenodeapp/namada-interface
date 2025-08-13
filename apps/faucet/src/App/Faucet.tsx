@@ -29,6 +29,16 @@ import {
   PreFormatted,
 } from "./Faucet.components";
 
+declare global {
+  interface Window {
+    turnstile: {
+      ready: (cb: () => void) => void;
+      execute: (container: string, params: { sitekey: string; callback: (token: string) => void; "error-callback": (errorCode: string) => void }) => void;
+      reset: (container: string) => void;
+    };
+  }
+}
+
 enum Status {
   PendingPowSolution,
   PendingTransfer,
@@ -188,15 +198,30 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
       setStatusText(undefined);
 
       try {
-        const { challenge, tag } = await api
-          .challenge()
-          .catch(({ message, code }) => {
-            throw new Error(
-              `Unable to request challenge: ${code} - ${message}`
-            );
-          });
+        const { challenge, tag } = await api.challenge().catch(({ message, code }) => {
+          throw new Error(`Unable to request challenge: ${code} - ${message}`);
+        });
 
         const solution = await postPowChallenge({ challenge, difficulty });
+
+        // Only attempt captcha if sitekey is configured
+        const sitekey = process.env.NAMADA_INTERFACE_TURNSTILE_SITEKEY;
+        let captcha_token: string | undefined;
+
+        if (sitekey && sitekey.trim() !== "") {
+          captcha_token = await new Promise<string>((resolve, reject) => {
+            if (window.turnstile) {
+              window.turnstile.execute("#turnstile-widget", {
+                sitekey,
+                callback: (t: string) => resolve(t),
+                "error-callback": (errorCode: string) => reject(new Error(`Turnstile error: ${errorCode}`)),
+              });
+            } else {
+              reject(new Error("Turnstile not loaded but sitekey is configured"));
+            }
+          });
+        }
+
         const submitData: Data = {
           solution,
           tag,
@@ -206,6 +231,7 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
             token: sanitizedToken,
             amount: amount * 1_000_000,
           },
+          ...(captcha_token && { captcha_token }),
         };
 
         await submitFaucetTransfer(submitData);
@@ -316,7 +342,7 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
           error={
             amount && amount > withdrawLimit ?
               `Amount must be less than or equal to ${withdrawLimit}`
-            : ""
+              : ""
           }
         />
       </InputContainer>
@@ -363,6 +389,9 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
           Get Testnet Tokens
         </ActionButton>
       </ButtonContainer>
+      {process.env.NAMADA_INTERFACE_TURNSTILE_SITEKEY && (
+        <div id="turnstile-widget"></div>
+      )}
     </FaucetFormContainer>
   );
 };
