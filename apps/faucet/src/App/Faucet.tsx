@@ -16,8 +16,8 @@ import { bech32mValidation, shortenAddress } from "@namada/utils";
 import { chains } from "@namada/chains";
 import { useUntil } from "@namada/hooks";
 import { Namada } from "@namada/integrations";
+import { Config } from "config";
 import { Data, PowChallenge, TransferResponse } from "../utils";
-import { AppContext } from "./App";
 import {
   ButtonContainer,
   InfoContainer,
@@ -28,12 +28,20 @@ import {
   FormStatus,
   PreFormatted,
 } from "./Faucet.components";
+import { FaucetAppContext } from "./FaucetApp";
 
 declare global {
   interface Window {
     turnstile: {
       ready: (cb: () => void) => void;
-      execute: (container: string, params: { sitekey: string; callback: (token: string) => void; "error-callback": (errorCode: string) => void }) => void;
+      execute: (
+        container: string,
+        params: {
+          sitekey: string;
+          callback: (token: string) => void;
+          "error-callback": (errorCode: string) => void;
+        }
+      ) => void;
       reset: (container: string) => void;
     };
   }
@@ -48,6 +56,7 @@ enum Status {
 
 type Props = {
   isTestnetLive: boolean;
+  config: Config;
 };
 
 const bech32mPrefix = "tnam";
@@ -58,11 +67,11 @@ enum ExtensionAttachStatus {
   Installed,
 }
 
-export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
+export const FaucetForm: React.FC<Props> = ({ config, isTestnetLive }) => {
   const {
     api,
     settings: { difficulty, tokens, withdrawLimit },
-  } = useContext(AppContext)!;
+  } = useContext(FaucetAppContext)!;
   const [extensionAttachStatus, setExtensionAttachStatus] = useState(
     ExtensionAttachStatus.PendingDetection
   );
@@ -198,14 +207,18 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
       setStatusText(undefined);
 
       try {
-        const { challenge, tag } = await api.challenge().catch(({ message, code }) => {
-          throw new Error(`Unable to request challenge: ${code} - ${message}`);
-        });
+        const { challenge, tag } = await api
+          .challenge()
+          .catch(({ message, code }) => {
+            throw new Error(
+              `Unable to request challenge: ${code} - ${message}`
+            );
+          });
 
         const solution = await postPowChallenge({ challenge, difficulty });
 
         // Only attempt captcha if sitekey is configured
-        const sitekey = process.env.NAMADA_INTERFACE_TURNSTILE_SITEKEY;
+        const sitekey = config.turnstileSitekey;
         let captcha_token: string | undefined;
 
         if (sitekey && sitekey.trim() !== "") {
@@ -214,10 +227,13 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
               window.turnstile.execute("#turnstile-widget", {
                 sitekey,
                 callback: (t: string) => resolve(t),
-                "error-callback": (errorCode: string) => reject(new Error(`Turnstile error: ${errorCode}`)),
+                "error-callback": (errorCode: string) =>
+                  reject(new Error(`Turnstile error: ${errorCode}`)),
               });
             } else {
-              reject(new Error("Turnstile not loaded but sitekey is configured"));
+              reject(
+                new Error("Turnstile not loaded but sitekey is configured")
+              );
             }
           });
         }
@@ -342,7 +358,7 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
           error={
             amount && amount > withdrawLimit ?
               `Amount must be less than or equal to ${withdrawLimit}`
-              : ""
+            : ""
           }
         />
       </InputContainer>
@@ -389,9 +405,7 @@ export const FaucetForm: React.FC<Props> = ({ isTestnetLive }) => {
           Get Testnet Tokens
         </ActionButton>
       </ButtonContainer>
-      {process.env.NAMADA_INTERFACE_TURNSTILE_SITEKEY && (
-        <div id="turnstile-widget"></div>
-      )}
+      {config.turnstileSitekey && <div id="turnstile-widget"></div>}
     </FaucetFormContainer>
   );
 };
