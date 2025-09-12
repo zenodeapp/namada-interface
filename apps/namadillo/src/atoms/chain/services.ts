@@ -1,8 +1,8 @@
 import {
   DefaultApi,
   IbcToken,
+  ModelParameters,
   NativeToken,
-  Parameters,
 } from "@namada/indexer-client";
 import { getDenomFromIbcTrace } from "atoms/integrations";
 import BigNumber from "bignumber.js";
@@ -18,7 +18,7 @@ export const fetchRpcUrlFromIndexer = async (
 };
 
 // TODO: We need the response type of this call updated in the indexer client
-type TempChainParams = Parameters & {
+type TempChainParams = ModelParameters & {
   checksums: {
     current: Record<string, string>;
     fallback: Record<string, string>;

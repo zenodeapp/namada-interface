@@ -218,8 +218,10 @@ export const namadaShieldedAssetsAtom = atomWithQuery((get) => {
 
       return mapNamadaAddressesToAssets({
         balances:
-          shieldedBalance?.map((i) => ({ ...i, tokenAddress: i.address })) ??
-          [],
+          shieldedBalance?.map((i) => ({
+            minDenomAmount: i.minDenomAmount,
+            token: { address: i.address },
+          })) ?? [],
         assets: Object.values(chainAssetsMap.data),
       });
     }, [viewingKeysQuery, chainTokensQuery, chainAssetsMap]),
