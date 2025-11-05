@@ -15,6 +15,7 @@ type UseWalletOutput = {
   connectToChainId: (chainId: string) => Promise<void>;
   setWalletAddress: (walletAddress: string) => void;
   loadWalletAddress: (chainId: string) => Promise<string>;
+  setConnectedWallets: (connectedWallets: Record<string, boolean>) => void;
 };
 
 export const useWalletManager = (wallet: WalletConnector): UseWalletOutput => {
@@ -63,5 +64,6 @@ export const useWalletManager = (wallet: WalletConnector): UseWalletOutput => {
     connectToChainId,
     loadWalletAddress,
     setWalletAddress,
+    setConnectedWallets,
   };
 };

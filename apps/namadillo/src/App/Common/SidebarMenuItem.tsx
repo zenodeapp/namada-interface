@@ -24,7 +24,7 @@ export const SidebarMenuItem = ({ url, children }: Props): JSX.Element => {
       to={url}
       className={({ isActive }) =>
         clsx(className, {
-          "text-yellow font-bold": isActive,
+          "text-yellow font-bold pointer-events-none select-none": isActive,
         })
       }
     >

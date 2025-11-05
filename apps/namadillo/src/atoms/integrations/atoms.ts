@@ -9,13 +9,24 @@ import { TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import invariant from "invariant";
 import { atomWithMutation, atomWithQuery } from "jotai-tanstack-query";
 import { atomFamily, atomWithStorage } from "jotai/utils";
-import { AssetWithAmount, BaseDenom, IbcChannels, RpcStorage } from "types";
-import { toDisplayAmount } from "utils";
 import {
+  Asset,
+  AssetWithAmount,
+  AssetWithAmountAndChain,
+  BaseDenom,
+  Coin,
+  IbcChannels,
+  RpcStorage,
+} from "types";
+import { toDisplayAmount } from "utils";
+import { getKeplrWallet } from "utils/ibc";
+import {
+  getAvailableChains,
   getChainRegistryByChainName,
   getNamadaChainAssetsMap,
   getNamadaChainRegistry,
   getNamadaIbcInfo,
+  SUPPORTED_ASSETS_MAP,
 } from "./functions";
 import {
   broadcastIbcTransaction,
@@ -121,6 +132,147 @@ export const assetBalanceAtomFamily = atomFamily(
   }
 );
 
+/// Balance of ALL KEPLR assets across all supported chains using chainAssetsMap
+/// Automatically discovers wallet addresses for each chain
+export const allKeplrAssetsBalanceAtom = atomWithQuery<
+  Record<BaseDenom, AssetWithAmountAndChain>
+>((get) => {
+  const chainSettings = get(chainAtom);
+  const chainAssetsMap = get(namadaRegistryChainAssetsMapAtom);
+  const connectedWallets = get(connectedWalletsAtom);
+
+  return {
+    queryKey: [
+      "all-keplr-assets-comprehensive",
+      chainSettings.data?.chainId,
+      chainAssetsMap.data,
+      connectedWallets,
+    ],
+    ...queryDependentFn(async () => {
+      invariant(chainSettings.data, "No chain settings");
+      invariant(chainAssetsMap.data, "No chain assets map");
+
+      // Only proceed if Keplr is connected
+      if (!connectedWallets?.keplr) {
+        return {};
+      }
+
+      const availableChains = getAvailableChains();
+
+      // Get Keplr wallet instance
+      const keplr = getKeplrWallet();
+
+      // First, silently check which chains we're already connected to
+      const connectedChains: { chain: Chain; walletAddress: string }[] = [];
+
+      await Promise.allSettled(
+        availableChains.map(async (chain) => {
+          try {
+            // Try to get key - if this throws, we're not connected to this chain
+            const key = await keplr.getKey(chain.chain_id);
+            if (key?.bech32Address) {
+              connectedChains.push({
+                chain,
+                walletAddress: key.bech32Address,
+              });
+            }
+          } catch (error) {
+            console.error(
+              `Failed to fetch balances for connected chain ${chain.chain_name}:`,
+              error
+            );
+            // Chain not connected - silently skip without prompting user
+            // This includes cases where user hasn't connected to this specific chain
+            return;
+          }
+        })
+      );
+
+      // Only query balances from chains we're already connected to
+      const chainBalancePromises = connectedChains.map(
+        async ({ chain, walletAddress }) => {
+          try {
+            return await queryAndStoreRpc(chain, async (rpc: string) => {
+              const chainName = chain.chain_name;
+
+              const assetsBalances = await queryAssetBalances(
+                walletAddress,
+                rpc
+              );
+              const assetList = getChainRegistryByChainName(chainName)?.assets;
+
+              if (!assetList) {
+                return [];
+              }
+
+              return assetsBalances.flatMap((ab) => {
+                const asset = assetList.assets.find((a) => a.base === ab.denom);
+                return asset ?
+                    [{ asset, balance: ab, chainName: chain.chain_name }]
+                  : [];
+              });
+            });
+          } catch (error) {
+            // RPC or balance query failed - log and continue
+            console.warn(
+              `Failed to fetch balances for connected chain ${chain.chain_name}:`,
+              error
+            );
+            return [];
+          }
+        }
+      );
+
+      const chainBalances = await Promise.all(chainBalancePromises);
+      const allBalances = chainBalances.flat();
+
+      // Define the type for balance entries
+      type BalanceEntry = {
+        asset: Asset;
+        balance: Coin;
+        chainName: string;
+      };
+
+      // Process balances and create entries for ALL assets in chainAssetsMap
+      const allChainAssets = Object.values(chainAssetsMap.data);
+      const entries: [string, AssetWithAmountAndChain][] = [];
+
+      // First, add assets that have actual balances
+      allBalances
+        .filter((item) => {
+          const assets = SUPPORTED_ASSETS_MAP.get(item.chainName);
+          return assets && assets.includes(item.asset.symbol);
+        })
+        .forEach(({ asset, balance, chainName }: BalanceEntry) => {
+          // Try to find corresponding Namada asset in chainAssetsMap
+          const namadaAsset = allChainAssets.find((namadaAsset) => {
+            return asset.symbol === namadaAsset.symbol;
+          });
+
+          if (namadaAsset) {
+            const amount = toDisplayAmount(
+              namadaAsset,
+              BigNumber(balance.minDenomAmount)
+            );
+
+            if (amount.gt(0)) {
+              entries.push([
+                `${asset.base}`,
+                {
+                  asset: namadaAsset,
+                  amount,
+                  chainName,
+                },
+              ]);
+            }
+          }
+        });
+
+      return Object.fromEntries(entries);
+    }, [chainSettings, chainAssetsMap, !!connectedWallets?.keplr]),
+  };
+});
+
 export const ibcRateLimitAtom = atomWithQuery((get) => {
   const chainTokens = get(chainTokensAtom);
   return {
@@ -174,6 +326,22 @@ export const namadaRegistryChainAssetsMapAtom = atomWithQuery((get) => {
       const isHousefire = chainSettings.data.chainId.includes("housefire");
 
       return getNamadaChainAssetsMap(isHousefire);
+    }, [chainSettings]),
+  };
+});
+
+export const allChainsAtom = atomWithQuery<Chain[]>((get) => {
+  const chainSettings = get(chainAtom);
+
+  return {
+    queryKey: ["all-chains", chainSettings.data?.chainId],
+    ...queryDependentFn(async () => {
+      invariant(chainSettings.data, "No chain settings");
+      const isHousefire = chainSettings.data.chainId.includes("housefire");
+      const ibcChains = getAvailableChains();
+      const namadaChain = getNamadaChainRegistry(isHousefire).chain;
+
+      return [...ibcChains, namadaChain];
     }, [chainSettings]),
   };
 });

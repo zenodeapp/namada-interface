@@ -1,12 +1,10 @@
-import { Chain } from "@chain-registry/types";
 import { IbcTransferProps } from "@namada/sdk-multicore";
 import { AccountType } from "@namada/types";
 import { mapUndefined } from "@namada/utils";
-import { params, routes } from "App/routes";
-import {
-  OnSubmitTransferParams,
-  TransferModule,
-} from "App/Transfer/TransferModule";
+import { routes } from "App/routes";
+import { isShieldedAddress } from "App/Transfer/common";
+import { TransferModule } from "App/Transfer/TransferModule";
+import { OnSubmitTransferParams } from "App/Transfer/types";
 import {
   allDefaultAccountsAtom,
   defaultAccountAtom,
@@ -17,110 +15,105 @@ import {
   namadaTransparentAssetsAtom,
 } from "atoms/balance";
 import { chainAtom } from "atoms/chain";
-import {
-  getChainRegistryByChainName,
-  ibcChannelsFamily,
-  namadaChainRegistryAtom,
-} from "atoms/integrations";
+import { ibcChannelsFamily } from "atoms/integrations";
 import { ledgerStatusDataAtom } from "atoms/ledger";
-import { createIbcTxAtom } from "atoms/transfer/atoms";
+import { createIbcTxAtom, transferAmountAtom } from "atoms/transfer/atoms";
 import {
   clearDisposableSigner,
   persistDisposableSigner,
 } from "atoms/transfer/services";
 import BigNumber from "bignumber.js";
-import * as osmosis from "chain-registry/mainnet/osmosis";
 import { useFathomTracker } from "hooks/useFathomTracker";
-import { useRequiresNewShieldedSync } from "hooks/useRequiresNewShieldedSync";
 import { useTransaction } from "hooks/useTransaction";
 import { useTransactionActions } from "hooks/useTransactionActions";
-import { useUrlState } from "hooks/useUrlState";
 import { useWalletManager } from "hooks/useWalletManager";
-import { wallets } from "integrations";
 import { KeplrWalletManager } from "integrations/Keplr";
 import invariant from "invariant";
 import { useAtom, useAtomValue } from "jotai";
 import { TransactionPair } from "lib/query";
 import { useEffect, useState } from "react";
 import { generatePath, useNavigate } from "react-router-dom";
-import { Asset, IbcTransferTransactionData, TransferStep } from "types";
 import {
-  isNamadaAsset,
+  Asset,
+  AssetWithAmountAndChain,
+  IbcTransferTransactionData,
+  TransferStep,
+} from "types";
+import {
   toBaseAmount,
   toDisplayAmount,
   useTransactionEventListener,
 } from "utils";
-import { IbcTabNavigation } from "./IbcTabNavigation";
 import { IbcTopHeader } from "./IbcTopHeader";
 
-const defaultChainId = "cosmoshub-4";
-const keplr = new KeplrWalletManager();
+interface IbcWithdrawProps {
+  sourceAddress: string;
+  setSourceAddress: (address?: string) => void;
+  destinationAddress: string;
+  setDestinationAddress: (address?: string) => void;
+  keplrWalletManager: KeplrWalletManager;
+  assetSelectorModalOpen: boolean | undefined;
+  setAssetSelectorModalOpen: (open: boolean) => void;
+}
 
-export const IbcWithdraw = (): JSX.Element => {
+export const IbcWithdraw = ({
+  sourceAddress,
+  setSourceAddress,
+  destinationAddress,
+  setDestinationAddress,
+  keplrWalletManager,
+  assetSelectorModalOpen,
+  setAssetSelectorModalOpen,
+}: IbcWithdrawProps): JSX.Element => {
+  //  COMPONENT STATE
+  const [selectedAssetWithAmount, setSelectedAssetWithAmount] = useState<
+    AssetWithAmountAndChain | undefined
+  >();
+  const [refundTarget, setRefundTarget] = useState<string>();
+  const [amount, setAmount] = useAtom(transferAmountAtom);
+  const [customAddress, setCustomAddress] = useState<string>("");
+  const [sourceChannel, setSourceChannel] = useState("");
+  const [completedAt, setCompletedAt] = useState<Date | undefined>();
+  const [txHash, setTxHash] = useState<string | undefined>();
+  //  ERROR & STATUS STATE
+  const [currentStatus, setCurrentStatus] = useState("");
+  const [statusExplanation, setStatusExplanation] = useState("");
+  const [generalErrorMessage, setGeneralErrorMessage] = useState("");
+  //  GLOBAL STATE
   const defaultAccounts = useAtomValue(allDefaultAccountsAtom);
-  const shieldedAccount = defaultAccounts.data?.find(
-    (account) => account.type === AccountType.ShieldedKeys
-  );
+  const {
+    walletAddress: keplrAddress,
+    chainId,
+    registry,
+  } = useWalletManager(keplrWalletManager);
   const transparentAccount = useAtomValue(defaultAccountAtom);
   const namadaChain = useAtomValue(chainAtom);
   const [ledgerStatus, setLedgerStatusStop] = useAtom(ledgerStatusDataAtom);
-  const namadaChainRegistry = useAtomValue(namadaChainRegistryAtom);
-  const chain = namadaChainRegistry.data?.chain;
-
-  const requiresNewShieldedSync = useRequiresNewShieldedSync();
-  const [generalErrorMessage, setGeneralErrorMessage] = useState("");
-  const [selectedAssetAddress, setSelectedAssetAddress] = useUrlState(
-    params.asset
-  );
-  const [shielded, setShielded] = useState<boolean>(!requiresNewShieldedSync);
-  const [refundTarget, setRefundTarget] = useState<string>();
-  const [amount, setAmount] = useState<BigNumber | undefined>();
-  const [customAddress, setCustomAddress] = useState<string>("");
-  const [sourceChannel, setSourceChannel] = useState("");
-  const [currentStatus, setCurrentStatus] = useState("");
-  const [statusExplanation, setStatusExplanation] = useState("");
-  const [completedAt, setCompletedAt] = useState<Date | undefined>();
-  const [txHash, setTxHash] = useState<string | undefined>();
-  const [destinationChain, setDestinationChain] = useState<Chain | undefined>();
   const { refetch: genDisposableSigner } = useAtomValue(disposableSignerAtom);
-  const alias = shieldedAccount?.alias ?? transparentAccount.data?.alias;
-
-  const { data: availableAssets, isLoading: isLoadingAssets } = useAtomValue(
-    shielded ? namadaShieldedAssetsAtom : namadaTransparentAssetsAtom
-  );
-
   const { storeTransaction } = useTransactionActions();
   const { trackEvent } = useFathomTracker();
   const navigate = useNavigate();
-
+  // DERIVED VALUES
+  const shieldedAccount = defaultAccounts.data?.find(
+    (account) => account.type === AccountType.ShieldedKeys
+  );
+  const alias = shieldedAccount?.alias ?? transparentAccount.data?.alias;
+  const shielded = isShieldedAddress(sourceAddress ?? "");
+  const { data: availableAssets } = useAtomValue(
+    shielded ? namadaShieldedAssetsAtom : namadaTransparentAssetsAtom
+  );
   const ledgerAccountInfo = ledgerStatus && {
     deviceConnected: ledgerStatus.connected,
     errorMessage: ledgerStatus.errorMessage,
   };
-
   const availableAmount = mapUndefined(
     (address) => availableAssets?.[address]?.amount,
-    selectedAssetAddress
+    selectedAssetWithAmount?.asset.address
   );
-
   const selectedAsset =
-    selectedAssetAddress ? availableAssets?.[selectedAssetAddress] : undefined;
-
-  const {
-    walletAddress: keplrAddress,
-    connectToChainId,
-    chainId,
-    registry,
-    loadWalletAddress,
-  } = useWalletManager(keplr);
-
-  const onChangeWallet = (): void => {
-    if (registry) {
-      connectToChainId(registry.chain.chain_id);
-      return;
-    }
-    connectToChainId(defaultChainId);
-  };
+    selectedAssetWithAmount?.asset.address ?
+      availableAssets?.[selectedAssetWithAmount?.asset.address]
+    : undefined;
 
   useTransactionEventListener(
     ["IbcWithdraw.Success", "ShieldedIbcWithdraw.Success"],
@@ -145,20 +138,8 @@ export const IbcWithdraw = (): JSX.Element => {
 
   const redirectToTimeline = (): void => {
     if (txHash) {
+      setAmount(undefined);
       navigate(generatePath(routes.transaction, { hash: txHash }));
-    }
-  };
-
-  const updateDestinationChainAndAddress = async (
-    chain: Chain | undefined
-  ): Promise<void> => {
-    setDestinationChain(chain);
-    if (customAddress) {
-      setCustomAddress("");
-    }
-    if (chain) {
-      await connectToChainId(chain.chain_id);
-      await loadWalletAddress(chain.chain_id);
     }
   };
 
@@ -166,40 +147,11 @@ export const IbcWithdraw = (): JSX.Element => {
     data: ibcChannels,
     isError: unknownIbcChannels,
     isLoading: isLoadingIbcChannels,
-  } = useAtomValue(ibcChannelsFamily(destinationChain?.chain_name));
+  } = useAtomValue(ibcChannelsFamily(registry?.chain.chain_name));
 
   useEffect(() => {
     setSourceChannel(ibcChannels?.namadaChannel || "");
   }, [ibcChannels]);
-
-  // Search for original chain. We don't want to enable users to transfer Namada assets
-  // to other chains different than the original one. Ex: OSMO should only be withdrew to Osmosis,
-  // ATOM to Cosmoshub, etc.
-  useEffect(() => {
-    (async () => {
-      if (!selectedAsset) {
-        await updateDestinationChainAndAddress(undefined);
-        return;
-      }
-
-      let chain: Chain | undefined;
-
-      if (isNamadaAsset(selectedAsset.asset)) {
-        chain = osmosis.chain; // for now, NAM uses the osmosis chain
-      } else if (selectedAsset.asset.traces) {
-        const trace = selectedAsset.asset.traces.find(
-          (trace) => trace.type === "ibc"
-        );
-
-        if (trace) {
-          const chainName = trace.counterparty.chain_name;
-          chain = getChainRegistryByChainName(chainName)?.chain;
-        }
-      }
-
-      await updateDestinationChainAndAddress(chain);
-    })();
-  }, [selectedAsset]);
 
   const {
     execute: performWithdraw,
@@ -325,8 +277,12 @@ export const IbcWithdraw = (): JSX.Element => {
     invariant(keplrAddress, "No address is selected");
     invariant(shieldedAccount, "No shielded account is found");
     invariant(transparentAccount.data, "No transparent account is found");
+    invariant(destinationAddress, "No destination address is set");
 
-    const amountInBaseDenom = toBaseAmount(selectedAsset.asset, displayAmount);
+    const amountInBaseDenom = toBaseAmount(
+      selectedAsset.asset,
+      BigNumber(displayAmount ?? 0)
+    );
     const source =
       shielded ?
         shieldedAccount.pseudoExtendedKey!
@@ -370,45 +326,26 @@ export const IbcWithdraw = (): JSX.Element => {
       <header className="flex flex-col items-center text-center mb-8 gap-6">
         <IbcTopHeader type="namToIbc" isShielded={shielded} />
       </header>
-      <div className="mb-6">{!completedAt && <IbcTabNavigation />}</div>
       <TransferModule
         source={{
-          isLoadingAssets,
-          wallet: wallets.namada,
-          walletAddress:
-            shielded ?
-              shieldedAccount?.address
-            : transparentAccount.data?.address,
-          chain,
-          isShieldedAddress: shielded,
-          availableChains: chain ? [chain] : [],
-          availableAssets,
+          address: sourceAddress,
           availableAmount,
-          selectedAssetAddress,
-          onChangeSelectedAsset: setSelectedAssetAddress,
-          onChangeShielded: (isShielded) => {
-            if (requiresNewShieldedSync) {
-              setShielded(false);
-            } else {
-              setShielded(isShielded);
-            }
-          },
+          selectedAssetWithAmount,
           amount,
-          onChangeAmount: setAmount,
           ledgerAccountInfo,
+          onChangeAddress: setSourceAddress,
+          onChangeSelectedAsset: setSelectedAssetWithAmount,
+          onChangeAmount: setAmount,
         }}
         destination={{
-          wallet: wallets.keplr,
-          walletAddress: keplrAddress,
-          availableWallets: [wallets.keplr],
-          enableCustomAddress: true,
           customAddress,
-          onChangeCustomAddress: setCustomAddress,
-          chain: destinationChain,
-          onChangeWallet,
+          address: destinationAddress,
+          onChangeAddress:
+            customAddress ?
+              (address) => setCustomAddress(address ?? "")
+            : setDestinationAddress,
           isShieldedAddress: false,
         }}
-        isShieldedTx={shielded}
         errorMessage={generalErrorMessage || error?.message || ""}
         currentStatus={currentStatus}
         currentStatusExplanation={statusExplanation}
@@ -418,9 +355,8 @@ export const IbcWithdraw = (): JSX.Element => {
            * from the confirmation event from target chain */
           isSuccess
         }
-        ibcTransfer={"withdraw"}
         requiresIbcChannels={requiresIbcChannels}
-        ibcOptions={{
+        ibcChannels={{
           sourceChannel,
           onChangeSourceChannel: setSourceChannel,
         }}
@@ -428,7 +364,9 @@ export const IbcWithdraw = (): JSX.Element => {
         feeProps={feeProps}
         onComplete={redirectToTimeline}
         completedAt={completedAt}
-        isSyncingMasp={requiresNewShieldedSync}
+        keplrWalletManager={keplrWalletManager}
+        assetSelectorModalOpen={assetSelectorModalOpen}
+        setAssetSelectorModalOpen={setAssetSelectorModalOpen}
       />
     </div>
   );

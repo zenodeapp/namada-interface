@@ -10,6 +10,7 @@ import { chainParametersAtom } from "atoms/chain";
 import {
   broadcastIbcTransactionAtom,
   createStargateClient,
+  getChainRegistryByChainId,
   getShieldedArgs,
   getSignedMessage,
   queryAndStoreRpc,
@@ -190,38 +191,42 @@ export const useIbcTransaction = ({
 
       const baseAmount = toBaseAmount(selectedAsset, displayAmount);
 
+      const sourceChainAssets =
+        getChainRegistryByChainId(registry.chain.chain_id)?.assets.assets || [];
+      // We need to find the token base denom on the source chain
+      const asset = sourceChainAssets.find((asset) => {
+        return asset.symbol === selectedAsset.symbol;
+      });
+      invariant(asset, "Asset is required");
+
       // This step might require a bit of time
       const { memo: maspCompatibleMemo, receiver: maspCompatibleReceiver } =
         await (async () => {
           onUpdateStatus?.("Generating MASP parameters...");
-          const assetTrace = selectedAsset.traces?.find(
-            (trace) => trace.type === "ibc"
-          );
 
-          // For genShieldedArgs we have to pass the ibc trace path on destination chain,
-          // for native assets we use the base denom
-          const assetTracePath =
-            assetTrace ? assetTrace.chain.path : selectedAsset.base;
-          invariant(assetTracePath, "Asset trace path is required");
+          // If the asset has ibc trace(NAM on osmosis for example), we need to use the trace path as token
+          const token =
+            asset.traces?.find((trace) => trace.type === "ibc")?.chain.path ||
+            asset.base;
 
           return shielded ?
               await getShieldedArgs(
                 destinationAddress,
-                assetTracePath,
+                token,
                 baseAmount,
                 destinationChannel!
               )
             : { memo, receiver: destinationAddress };
         })();
-
       const chainId = registry.chain.chain_id;
+      const denomination = asset.base;
 
       const transferMsg = createIbcTransferMessage(
         sanitizeChannel(sourceChannel!),
         sanitizeAddress(sourceAddress),
         sanitizeAddress(maspCompatibleReceiver),
         baseAmount,
-        selectedAsset.base,
+        denomination,
         maspCompatibleMemo
       );
 

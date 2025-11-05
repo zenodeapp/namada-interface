@@ -1,4 +1,7 @@
 import { SidebarMenuItem } from "App/Common/SidebarMenuItem";
+import { ReceiveIcon } from "App/Icons/ReceiveIcon";
+import { ShieldIcon } from "App/Icons/ShieldIcon";
+import { TransferIcon } from "App/Icons/TransferIcon";
 import { routes } from "App/routes";
 import { applicationFeaturesAtom } from "atoms/settings";
 import { useAtomValue } from "jotai";
@@ -6,9 +9,8 @@ import { AiFillHome } from "react-icons/ai";
 import { BsDiscord, BsTwitterX } from "react-icons/bs";
 import { FaVoteYea } from "react-icons/fa";
 import { FaBug } from "react-icons/fa6";
-import { GoHistory, GoStack } from "react-icons/go";
-import { IoSwapHorizontal } from "react-icons/io5";
-import { TbVectorTriangle } from "react-icons/tb";
+import { GoStack } from "react-icons/go";
+import { MdOutlineKeyboardBackspace } from "react-icons/md";
 import { Link } from "react-router-dom";
 import { DISCORD_URL, TWITTER_URL } from "urls";
 
@@ -32,21 +34,26 @@ export const Navigation = (): JSX.Element => {
       url: routes.governance,
     },
     {
-      label: "IBC Transfer",
-      icon: <TbVectorTriangle />,
-      url: features.ibcTransfersEnabled ? routes.ibc : undefined,
+      label: "Shield",
+      icon: <ShieldIcon />,
+      url: routes.maspShield,
     },
     {
       label: "Transfer",
-      icon: <IoSwapHorizontal />,
+      icon: <TransferIcon />,
       url:
         features.maspEnabled || features.namTransfersEnabled ?
           routes.transfer
         : undefined,
     },
     {
+      label: "Receive",
+      icon: <ReceiveIcon />,
+      url: routes.receive,
+    },
+    {
       label: "History",
-      icon: <GoHistory />,
+      icon: <MdOutlineKeyboardBackspace />,
       url:
         features.namTransfersEnabled || features.ibcTransfersEnabled ?
           routes.history
@@ -57,14 +64,27 @@ export const Navigation = (): JSX.Element => {
   return (
     <div className="min-h-full flex flex-col justify-between gap-10 p-6 pb-8">
       <ul className="flex flex-col gap-4">
-        {menuItems.map((item) => (
-          <li key={item.label}>
-            <SidebarMenuItem url={item.url}>
-              {item.icon}
-              {item.label}
-            </SidebarMenuItem>
-          </li>
-        ))}
+        {menuItems.map((item) => {
+          const shieldingRoute = item.label === "Shield";
+          const historyRoute = item.label === "History";
+          return (
+            <li key={item.label}>
+              {shieldingRoute && (
+                <>
+                  <hr className="border-neutral-300 border-t-1 w-full mb-2" />
+                  <h5 className="text-neutral-500 text-xs mb-2">Move Assets</h5>
+                </>
+              )}
+              <SidebarMenuItem url={item.url}>
+                {item.icon}
+                {item.label}
+              </SidebarMenuItem>
+              {historyRoute && (
+                <hr className="border-neutral-300 border-t-1 w-full mt-3" />
+              )}
+            </li>
+          );
+        })}
       </ul>
       <footer className="flex flex-col gap-10">
         <ul className="flex flex-col gap-1 text-neutral-300 text-sm">

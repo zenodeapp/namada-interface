@@ -6,11 +6,15 @@ import { TransactionHistory, transactionHistoryAtom } from "./atoms";
 
 export const filterPendingTransactions = (
   tx: TransferTransactionData
-): boolean => tx.status === "pending" || tx.status === "idle";
+): boolean => {
+  return !["success", "error"].includes(tx.status);
+};
 
 export const filterCompleteTransactions = (
   tx: TransferTransactionData
-): boolean => tx.status === "success" || tx.status === "error";
+): boolean => {
+  return ["success", "error"].includes(tx.status);
+};
 
 export const searchAllStoredTxByHash = (
   hash: string
@@ -23,21 +27,19 @@ export const searchAllStoredTxByHash = (
 
 export const addTimestamps = async (
   api: DefaultApi,
-  txs: TransactionHistory[]
-): Promise<TransactionHistory[]> =>
-  Promise.all(
-    txs.map(async (tx) => {
-      if (tx.timestamp) return tx;
-      try {
+  history: TransactionHistory[]
+): Promise<TransactionHistory[]> => {
+  return Promise.all(
+    history.map(async (item) => {
+      // hacky fix until types get fixed
+      if (item.blockHeight) {
         const timestamp = await fetchBlockTimestampByHeight(
           api,
-          // @ts-expect-error – indexer type lacks blockHeight; patch later
-          tx.blockHeight
+          parseInt((item as unknown as { blockHeight: string }).blockHeight, 10)
         );
-        return { ...tx, timestamp };
-      } catch (err) {
-        console.error("Failed to fetch block timestamp:", err);
-        return tx;
+        return { ...item, timestamp };
       }
+      return item;
     })
   );
+};
