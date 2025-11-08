@@ -95,8 +95,8 @@ export const MainRoutes = (): JSX.Element => {
             <Route path={routes.transfer} element={<div />} />
             <Route path={routes.ibc} element={<div />} />
             <Route path={routes.ibcWithdraw} element={<div />} />
-            <Route path={routes.maspShield} element={<div />} />
-            <Route path={routes.maspUnshield} element={<div />} />
+            <Route path={routes.shield} element={<div />} />
+            <Route path={routes.unshield} element={<div />} />
           </Route>
 
           {/* Transaction History */}

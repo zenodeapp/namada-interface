@@ -110,7 +110,7 @@ export const TransferDestination = ({
   );
 
   const isShieldingTransaction =
-    routes.maspShield === location.pathname || routes.ibc === location.pathname;
+    routes.shield === location.pathname || routes.ibc === location.pathname;
 
   // Make sure destination address isnt ibc if keplr is not connected
   useEffect(() => {

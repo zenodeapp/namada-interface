@@ -54,8 +54,8 @@ export const AddressDropdown = ({
   const shieldedAccount = accounts?.find(
     (account) => account.type === AccountType.ShieldedKeys
   );
-  const isShieldingTxn = [routes.maspShield, routes.ibc].includes(
-    location.pathname as "/masp/shield" | "/ibc"
+  const isShieldingTxn = [routes.shield, routes.ibc].includes(
+    location.pathname as "/shield" | "/ibc"
   );
   const isIbcDestination = isIbcAddress(destinationAddress ?? "");
 
