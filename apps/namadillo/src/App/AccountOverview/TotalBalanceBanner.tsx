@@ -86,7 +86,7 @@ export const TotalBalanceBanner = (): JSX.Element => {
         {/* <aside className="hidden lg:flex gap-4 items-center flex-wrap">
           <ActionButton
             onClick={() =>
-              navigate(routes.maspShield)
+              navigate(routes.shield)
             }
             size="sm"
             className="w-auto px-3 py-1.5"

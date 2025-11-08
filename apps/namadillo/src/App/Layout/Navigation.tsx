@@ -36,7 +36,7 @@ export const Navigation = (): JSX.Element => {
     {
       label: "Shield",
       icon: <ShieldIcon />,
-      url: routes.maspShield,
+      url: routes.shield,
     },
     {
       label: "Transfer",
