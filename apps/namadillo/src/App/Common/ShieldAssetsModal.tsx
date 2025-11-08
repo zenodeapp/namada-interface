@@ -28,7 +28,7 @@ export const ShieldAssetsModal = (): JSX.Element => {
               <img src={getAssetImageUrl(namadaAsset())} className="w-full" />
             </span>
           ),
-          onClick: () => navigate(routes.shield),
+          onClick: () => navigate(routes.maspShield),
           children: "Shield Assets from your Namada transparent account",
         },
       ]}

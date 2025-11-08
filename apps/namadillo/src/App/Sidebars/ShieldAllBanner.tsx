@@ -41,7 +41,7 @@ export const ShieldAllBanner = (): JSX.Element => {
           backgroundHoverColor="transparent"
           textColor="yellow"
           textHoverColor="black"
-          onClick={() => navigate(routes.shield)}
+          onClick={() => navigate(routes.maspShield)}
           onMouseEnter={() => setIsAnimating(true)}
           onMouseLeave={() => setIsAnimating(false)}
         >

@@ -20,7 +20,7 @@ const ShieldAssetCta = (): JSX.Element => {
       <div className="flex-1 flex items-center justify-center">
         <ActionButton
           className="w-fit uppercase"
-          onClick={() => navigate(routes.shield)}
+          onClick={() => navigate(routes.maspShield)}
         >
           Shield your first assets
         </ActionButton>

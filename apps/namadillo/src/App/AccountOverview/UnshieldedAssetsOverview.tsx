@@ -32,7 +32,7 @@ export const UnshieldedAssetsOverview = (): JSX.Element => {
             footerButtons={
               <>
                 <ActionButton
-                  onClick={() => navigate(routes.shield)}
+                  onClick={() => navigate(routes.maspShield)}
                   size="xs"
                   className="w-auto px-4"
                 >
